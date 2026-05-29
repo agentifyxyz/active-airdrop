@@ -10,9 +10,8 @@ const CLAIM_FEE = parseEther("0.00025");
 const CAMPAIGN_END = new Date("2026-06-17T00:00:00Z");
 
 export default function Home() {
-  const { login, logout, authenticated, user } = usePrivy();
+  const { login, logout, authenticated, user, linkWallet } = usePrivy();
   const { wallets } = useWallets();
-  const [walletAddress, setWalletAddress] = useState("");
   const [manualAddress, setManualAddress] = useState("");
   const [txCount, setTxCount] = useState(0);
   const [tokenAmount, setTokenAmount] = useState(0);
@@ -23,8 +22,10 @@ export default function Home() {
   const [timeLeft, setTimeLeft] = useState("");
   const [balance, setBalance] = useState("0");
 
-  const isGoogleUser = user?.google && !user?.wallet;
-  const activeAddress = walletAddress || manualAddress;
+  const isGoogleUser = user?.google && wallets.length === 0;
+  const needsWallet = authenticated && wallets.length === 0 && !user?.google;
+  const activeWallet = wallets[0];
+  const activeAddress = activeWallet?.address || manualAddress;
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -38,10 +39,6 @@ export default function Home() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    if (wallets.length > 0) setWalletAddress(wallets[0].address);
-  }, [wallets]);
 
   useEffect(() => {
     if (activeAddress) scanAddress(activeAddress);
@@ -72,151 +69,163 @@ export default function Home() {
   }
 
   async function handleClaim() {
-    if (!activeAddress) return;
+    if (!activeWallet || !activeAddress) return;
     setLoading(true);
     try {
       setStatus("Getting signature...");
       const signature = await signClaim(activeAddress, txCount);
       setStatus("Confirm in wallet...");
-      const wallet = wallets[0];
-      await wallet.switchChain(8453);
-      const provider = await wallet.getEthereumProvider();
-      const walletClient = createWalletClient({ account: activeAddress as `0x${string}`, chain: base, transport: custom(provider) });
+      await activeWallet.switchChain(8453);
+      const provider = await activeWallet.getEthereumProvider();
+      const walletClient = createWalletClient({
+        account: activeAddress as `0x${string}`,
+        chain: base,
+        transport: custom(provider)
+      });
       const hash = await walletClient.writeContract({
-        address: AIRDROP_CLAIM_ADDRESS, abi: AIRDROP_CLAIM_ABI,
-        functionName: "claim", args: [BigInt(txCount), signature as `0x${string}`],
+        address: AIRDROP_CLAIM_ADDRESS,
+        abi: AIRDROP_CLAIM_ABI,
+        functionName: "claim",
+        args: [BigInt(txCount), signature as `0x${string}`],
         value: CLAIM_FEE
       });
-      setStatus("TX: " + hash);
-      const publicClient = createPublicClient({ chain: base, transport: http() });
+      setStatus("TX submitted...");
+      const publicClient = createPublicClient({ chain: base, transport: http(`https://base-mainnet.g.alchemy.com/v2/${process.env.NEXT_PUBLIC_ALCHEMY_KEY}`) });
       await publicClient.waitForTransactionReceipt({ hash });
-      setStatus("Claimed!");
+      setStatus("✅ Claimed successfully!");
       setHasClaimed(true);
       await scanAddress(activeAddress);
     } catch (e: any) {
-      setStatus("Error: " + e.message);
+      setStatus("❌ " + e.message);
     }
     setLoading(false);
   }
 
   return (
-    <main className="min-h-screen bg-white">
-      <header className="border-b border-blue-100 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-            <span className="text-white font-bold text-sm">A</span>
+    <main className="min-h-screen" style={{backgroundColor: "#ffffff"}}>
+      <header style={{borderBottom: "1px solid #dbeafe", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between"}}>
+        <div style={{display: "flex", alignItems: "center", gap: "12px"}}>
+          <div style={{width: "32px", height: "32px", borderRadius: "8px", backgroundColor: "#1D6FEB", display: "flex", alignItems: "center", justifyContent: "center"}}>
+            <span style={{color: "white", fontWeight: "bold", fontSize: "14px"}}>A</span>
           </div>
-          <span className="font-bold text-blue-900 text-lg">Active</span>
+          <span style={{fontWeight: "bold", color: "#1e3a8a", fontSize: "18px"}}>Active</span>
         </div>
         {authenticated ? (
-          <button onClick={logout} className="text-sm text-blue-600 border border-blue-200 px-4 py-2 rounded-lg hover:bg-blue-50">Disconnect</button>
+          <button onClick={logout} style={{fontSize: "14px", color: "#1D6FEB", border: "1px solid #bfdbfe", padding: "8px 16px", borderRadius: "8px", background: "white", cursor: "pointer"}}>Disconnect</button>
         ) : (
-          <button onClick={login} className="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Connect</button>
+          <button onClick={login} style={{fontSize: "14px", backgroundColor: "#1D6FEB", color: "white", padding: "8px 16px", borderRadius: "8px", border: "none", cursor: "pointer"}}>Connect</button>
         )}
       </header>
-      <div className="max-w-lg mx-auto px-6 py-12">
-        <div className="text-center mb-10">
-          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 mx-auto mb-6 flex items-center justify-center shadow-lg shadow-blue-200">
-            <span className="text-white font-bold text-3xl">⚡</span>
+
+      <div style={{maxWidth: "480px", margin: "0 auto", padding: "48px 24px"}}>
+        <div style={{textAlign: "center", marginBottom: "40px"}}>
+          <div style={{width: "80px", height: "80px", borderRadius: "16px", background: "linear-gradient(135deg, #3b82f6, #1D6FEB)", margin: "0 auto 24px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 10px 25px rgba(29,111,235,0.3)"}}>
+            <span style={{color: "white", fontWeight: "bold", fontSize: "32px"}}>⚡</span>
           </div>
-          <h1 className="text-4xl font-bold text-blue-900 mb-3">$ACTIVE Airdrop</h1>
-          <p className="text-blue-500 text-lg">Claim tokens based on your Base activity</p>
+          <h1 style={{fontSize: "36px", fontWeight: "bold", color: "#1e3a8a", marginBottom: "12px"}}>$ACTIVE Airdrop</h1>
+          <p style={{color: "#60a5fa", fontSize: "18px"}}>Claim tokens based on your Base activity</p>
         </div>
-        <div className="bg-blue-600 rounded-2xl p-6 text-center mb-6 shadow-lg shadow-blue-200">
-          <p className="text-blue-200 text-sm mb-2">Campaign ends in</p>
-          <p className="text-white font-bold text-2xl">{timeLeft}</p>
+
+        <div style={{backgroundColor: "#1D6FEB", borderRadius: "16px", padding: "24px", textAlign: "center", marginBottom: "24px", boxShadow: "0 10px 25px rgba(29,111,235,0.3)"}}>
+          <p style={{color: "#bfdbfe", fontSize: "14px", marginBottom: "8px"}}>Campaign ends in</p>
+          <p style={{color: "white", fontWeight: "bold", fontSize: "24px"}}>{timeLeft}</p>
         </div>
-        <div className="grid grid-cols-3 gap-3 mb-6">
+
+        <div style={{display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "24px"}}>
           {[{ label: "Per Tx", value: "3 ACTIVE" }, { label: "Claim Fee", value: "0.00025 ETH" }, { label: "Instant", value: "70%" }].map((s) => (
-            <div key={s.label} className="bg-blue-50 rounded-xl p-4 text-center border border-blue-100">
-              <p className="text-blue-900 font-bold text-sm">{s.value}</p>
-              <p className="text-blue-400 text-xs mt-1">{s.label}</p>
+            <div key={s.label} style={{backgroundColor: "#eff6ff", borderRadius: "12px", padding: "16px", textAlign: "center", border: "1px solid #dbeafe"}}>
+              <p style={{color: "#1e3a8a", fontWeight: "bold", fontSize: "13px"}}>{s.value}</p>
+              <p style={{color: "#93c5fd", fontSize: "12px", marginTop: "4px"}}>{s.label}</p>
             </div>
           ))}
         </div>
+
         {!authenticated ? (
-          <div className="bg-white border-2 border-blue-100 rounded-2xl p-8 text-center">
-            <p className="text-blue-900 font-semibold mb-2">Connect to check eligibility</p>
-            <p className="text-blue-400 text-sm mb-6">Login with wallet, Farcaster, or Google</p>
-            <button onClick={login} className="w-full bg-blue-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-blue-700 transition">Connect Wallet</button>
+          <div style={{backgroundColor: "white", border: "2px solid #dbeafe", borderRadius: "16px", padding: "32px", textAlign: "center"}}>
+            <p style={{color: "#1e3a8a", fontWeight: "600", marginBottom: "8px"}}>Connect to check eligibility</p>
+            <p style={{color: "#93c5fd", fontSize: "14px", marginBottom: "24px"}}>Login with wallet, Farcaster, or Google</p>
+            <button onClick={login} style={{width: "100%", backgroundColor: "#1D6FEB", color: "white", padding: "16px", borderRadius: "12px", fontWeight: "600", fontSize: "18px", border: "none", cursor: "pointer"}}>Connect Wallet</button>
+          </div>
+        ) : needsWallet ? (
+          <div style={{backgroundColor: "white", border: "2px solid #dbeafe", borderRadius: "16px", padding: "32px", textAlign: "center"}}>
+            <p style={{color: "#1e3a8a", fontWeight: "600", marginBottom: "8px"}}>Connect a wallet to claim</p>
+            <p style={{color: "#93c5fd", fontSize: "14px", marginBottom: "24px"}}>Your Farcaster account needs a wallet to receive tokens and pay the claim fee.</p>
+            <button onClick={linkWallet} style={{width: "100%", backgroundColor: "#1D6FEB", color: "white", padding: "16px", borderRadius: "12px", fontWeight: "600", fontSize: "16px", border: "none", cursor: "pointer"}}>Connect Wallet</button>
           </div>
         ) : (
-          <div className="bg-white border-2 border-blue-100 rounded-2xl p-6">
+          <div style={{backgroundColor: "white", border: "2px solid #dbeafe", borderRadius: "16px", padding: "24px"}}>
             {isGoogleUser && (
-              <div className="mb-4">
-                <label className="text-blue-900 text-sm font-medium block mb-2">Enter your Base wallet address</label>
+              <div style={{marginBottom: "16px"}}>
+                <label style={{color: "#1e3a8a", fontSize: "14px", fontWeight: "500", display: "block", marginBottom: "8px"}}>Enter your Base wallet address</label>
                 <input type="text" placeholder="0x..." value={manualAddress} onChange={(e) => setManualAddress(e.target.value)}
-                  className="w-full border border-blue-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500" />
-                <button onClick={() => scanAddress(manualAddress)} className="mt-2 w-full bg-blue-50 text-blue-600 py-2 rounded-xl text-sm font-medium hover:bg-blue-100">Scan Address</button>
+                  style={{width: "100%", border: "1px solid #bfdbfe", borderRadius: "12px", padding: "12px 16px", fontSize: "14px", outline: "none", boxSizing: "border-box"}} />
+                <button onClick={() => scanAddress(manualAddress)} style={{marginTop: "8px", width: "100%", backgroundColor: "#eff6ff", color: "#1D6FEB", padding: "8px", borderRadius: "12px", fontSize: "14px", fontWeight: "500", border: "none", cursor: "pointer"}}>Scan Address</button>
               </div>
             )}
             {scanning ? (
-              <div className="text-center py-6">
-                <div className="animate-spin w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full mx-auto mb-3"></div>
-                <p className="text-blue-500 text-sm">Scanning Base transactions...</p>
+              <div style={{textAlign: "center", padding: "24px"}}>
+                <div style={{width: "32px", height: "32px", border: "2px solid #1D6FEB", borderTopColor: "transparent", borderRadius: "50%", margin: "0 auto 12px", animation: "spin 1s linear infinite"}}></div>
+                <p style={{color: "#60a5fa", fontSize: "14px"}}>Scanning Base transactions...</p>
               </div>
             ) : activeAddress ? (
               <div>
-                <div className="bg-blue-50 rounded-xl p-4 mb-4">
-                  <div className="flex justify-between mb-2">
-                    <span className="text-blue-500 text-sm">Base Transactions</span>
-                    <span className="text-blue-900 font-bold">{txCount.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-blue-500 text-sm">You will receive</span>
-                    <span className="text-blue-900 font-bold">{tokenAmount.toLocaleString()} ACTIVE</span>
-                  </div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-blue-500 text-sm">Instant 70%</span>
-                    <span className="text-blue-900 font-semibold">{Math.floor(tokenAmount * 0.7).toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-blue-500 text-sm">Vested 30%</span>
-                    <span className="text-blue-900 font-semibold">{Math.floor(tokenAmount * 0.3).toLocaleString()}</span>
-                  </div>
+                <div style={{backgroundColor: "#eff6ff", borderRadius: "12px", padding: "16px", marginBottom: "16px"}}>
+                  {[
+                    { label: "Base Transactions", value: txCount.toLocaleString() },
+                    { label: "You will receive", value: `${tokenAmount.toLocaleString()} ACTIVE` },
+                    { label: "Instant 70%", value: Math.floor(tokenAmount * 0.7).toLocaleString() },
+                    { label: "Vested 30%", value: Math.floor(tokenAmount * 0.3).toLocaleString() }
+                  ].map((row) => (
+                    <div key={row.label} style={{display: "flex", justifyContent: "space-between", marginBottom: "8px"}}>
+                      <span style={{color: "#60a5fa", fontSize: "14px"}}>{row.label}</span>
+                      <span style={{color: "#1e3a8a", fontWeight: "bold"}}>{row.value}</span>
+                    </div>
+                  ))}
                 </div>
                 {parseFloat(balance) > 0 && (
-                  <div className="bg-blue-600 rounded-xl p-3 mb-4 text-center">
-                    <p className="text-white text-sm">Balance: <strong>{parseFloat(balance).toLocaleString()} ACTIVE</strong></p>
+                  <div style={{backgroundColor: "#1D6FEB", borderRadius: "12px", padding: "12px", marginBottom: "16px", textAlign: "center"}}>
+                    <p style={{color: "white", fontSize: "14px"}}>Balance: <strong>{parseFloat(balance).toLocaleString()} ACTIVE</strong></p>
                   </div>
                 )}
                 {hasClaimed ? (
-                  <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
-                    <p className="text-green-700 font-semibold">Already claimed!</p>
-                    <p className="text-green-500 text-sm mt-1">Vesting unlocks Dec 19, 2026</p>
+                  <div style={{backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "12px", padding: "16px", textAlign: "center"}}>
+                    <p style={{color: "#15803d", fontWeight: "600"}}>✅ Already claimed!</p>
+                    <p style={{color: "#4ade80", fontSize: "14px", marginTop: "4px"}}>Vesting unlocks Dec 19, 2026</p>
                   </div>
                 ) : txCount === 0 ? (
-                  <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-center">
-                    <p className="text-orange-700 font-semibold">No Base transactions found</p>
-                    <p className="text-orange-500 text-sm mt-1">You need Base activity to claim</p>
+                  <div style={{backgroundColor: "#fff7ed", border: "1px solid #fed7aa", borderRadius: "12px", padding: "16px", textAlign: "center"}}>
+                    <p style={{color: "#c2410c", fontWeight: "600"}}>No Base transactions found</p>
+                    <p style={{color: "#fb923c", fontSize: "14px", marginTop: "4px"}}>You need Base activity to claim</p>
                   </div>
                 ) : (
                   <button onClick={handleClaim} disabled={loading}
-                    className="w-full bg-blue-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-blue-700 transition disabled:opacity-50">
+                    style={{width: "100%", backgroundColor: loading ? "#93c5fd" : "#1D6FEB", color: "white", padding: "16px", borderRadius: "12px", fontWeight: "600", fontSize: "18px", border: "none", cursor: loading ? "not-allowed" : "pointer"}}>
                     {loading ? "Processing..." : `Claim ${tokenAmount.toLocaleString()} ACTIVE`}
                   </button>
                 )}
-                {status && <p className="text-blue-500 text-xs text-center mt-3 break-all">{status}</p>}
+                {status && <p style={{color: "#60a5fa", fontSize: "12px", textAlign: "center", marginTop: "12px", wordBreak: "break-all"}}>{status}</p>}
               </div>
             ) : null}
           </div>
         )}
-        <div className="mt-6 space-y-3">
+
+        <div style={{marginTop: "24px"}}>
           {[
             { title: "How it works", body: "Every Base transaction earns you 3 $ACTIVE tokens." },
             { title: "Vesting", body: "70% instant. 30% unlocks December 19, 2026." },
             { title: "Trading", body: "Trading starts June 19, 2026 on Base DEXes." }
           ].map((item) => (
-            <div key={item.title} className="border border-blue-100 rounded-xl p-4">
-              <p className="text-blue-900 font-semibold text-sm">{item.title}</p>
-              <p className="text-blue-400 text-sm mt-1">{item.body}</p>
+            <div key={item.title} style={{border: "1px solid #dbeafe", borderRadius: "12px", padding: "16px", marginBottom: "12px"}}>
+              <p style={{color: "#1e3a8a", fontWeight: "600", fontSize: "14px"}}>{item.title}</p>
+              <p style={{color: "#93c5fd", fontSize: "14px", marginTop: "4px"}}>{item.body}</p>
             </div>
           ))}
         </div>
-        <p className="text-center text-blue-300 text-xs mt-8">
+        <p style={{textAlign: "center", color: "#bfdbfe", fontSize: "12px", marginTop: "32px"}}>
           {AIRDROP_CLAIM_ADDRESS?.slice(0,6)}...{AIRDROP_CLAIM_ADDRESS?.slice(-4)} · Base Mainnet
         </p>
       </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </main>
   );
 }
