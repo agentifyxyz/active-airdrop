@@ -48,7 +48,7 @@ export default function Profile() {
 
   async function handleFundWallet() {
     if (!embeddedWallet) return;
-    await fundWallet(embeddedWallet.address);
+    await fundWallet({ address: embeddedWallet.address });
   }
 
   return (
